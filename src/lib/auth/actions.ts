@@ -30,7 +30,7 @@ export async function signUp(_prevState: ActionResult, formData: FormData): Prom
   }
 
   const supabase = await createClient();
-  const { error } = await supabase.auth.signUp({
+  const { data, error } = await supabase.auth.signUp({
     email,
     password,
     options: {
@@ -40,6 +40,12 @@ export async function signUp(_prevState: ActionResult, formData: FormData): Prom
 
   if (error) {
     return { error: translateAuthError(error.message) };
+  }
+
+  // Se a confirmação de e-mail estiver desativada no projeto, o Supabase já
+  // retorna uma sessão ativa aqui — nesse caso o usuário já está logado.
+  if (data.session) {
+    redirect("/dashboard");
   }
 
   redirect("/cadastro/verifique-seu-email");
