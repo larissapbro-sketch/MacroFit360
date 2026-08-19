@@ -88,9 +88,19 @@ export default async function DashboardPage() {
       </Card>
 
       <Card>
-        <p className="text-sm text-muted">
-          Plano de treino e gráficos serão implementados nas próximas fases.
-        </p>
+        <div className="flex items-center justify-between">
+          <p className="text-sm text-muted">
+            Gere seu plano de treino personalizado com base nos seus equipamentos e dias
+            disponíveis.
+          </p>
+          <Link href="/plano-treino">
+            <Button variant="secondary">Plano de treino</Button>
+          </Link>
+        </div>
+      </Card>
+
+      <Card>
+        <p className="text-sm text-muted">Gráficos e evolução serão implementados nas próximas fases.</p>
       </Card>
 
       <form action={signOut}>
