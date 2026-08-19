@@ -77,8 +77,19 @@ export default async function DashboardPage() {
       </Card>
 
       <Card>
+        <div className="flex items-center justify-between">
+          <p className="text-sm text-muted">
+            Gere seu plano alimentar personalizado com base nas suas metas calculadas.
+          </p>
+          <Link href="/plano-alimentar">
+            <Button variant="secondary">Plano alimentar</Button>
+          </Link>
+        </div>
+      </Card>
+
+      <Card>
         <p className="text-sm text-muted">
-          Planos alimentares, de treino e gráficos serão implementados nas próximas fases.
+          Plano de treino e gráficos serão implementados nas próximas fases.
         </p>
       </Card>
 
