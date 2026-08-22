@@ -47,14 +47,14 @@ export default async function DashboardPage() {
   return (
     <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-6 py-12">
       <Card>
-        <div className="mb-4 flex items-start justify-between">
-          <div>
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
             <h1 className="mb-1 text-xl font-semibold">Dashboard</h1>
-            <p className="text-sm text-muted">
+            <p className="truncate text-sm text-muted">
               Logado como <span className="font-medium text-foreground">{user?.email}</span>
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Link href="/notificacoes" className="relative">
               <Button variant="secondary">
                 🔔
