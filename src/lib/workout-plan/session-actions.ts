@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/db/supabase-server";
+import { notifyWorkoutCompletion } from "@/lib/notifications/triggers";
 
 export interface SetSessionCompletedResult {
   error?: string;
@@ -25,16 +26,30 @@ export async function setWorkoutSessionCompleted(
     return { error: "Você precisa estar logado." };
   }
 
-  const { error } = await supabase
+  const { data: updatedSession, error } = await supabase
     .from("workout_sessions")
     .update({ completed })
-    .eq("id", sessionId);
+    .eq("id", sessionId)
+    .select("workout_plan_id")
+    .single();
 
-  if (error) {
+  if (error || !updatedSession) {
     return { error: "Não foi possível atualizar. Tente novamente." };
+  }
+
+  if (completed) {
+    const { data: allSessions } = await supabase
+      .from("workout_sessions")
+      .select("completed")
+      .eq("workout_plan_id", updatedSession.workout_plan_id);
+
+    const total = allSessions?.length ?? 0;
+    const done = allSessions?.filter((s) => s.completed).length ?? 0;
+    await notifyWorkoutCompletion(supabase, user.id, done, total);
   }
 
   revalidatePath("/plano-treino");
   revalidatePath("/dashboard");
+  revalidatePath("/notificacoes");
   return {};
 }

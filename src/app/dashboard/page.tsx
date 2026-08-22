@@ -7,6 +7,8 @@ import { getProgressHistory } from "@/lib/progress/queries";
 import { getActiveMealPlan } from "@/lib/meal-plan/queries";
 import { getWeeklyComparison } from "@/lib/dashboard/queries";
 import { getSubscription, isPremiumActive } from "@/lib/subscription/queries";
+import { getUnreadNotificationCount } from "@/lib/notifications/queries";
+import { notifyProgressReminder } from "@/lib/notifications/triggers";
 import { signOut } from "@/lib/auth/actions";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -23,12 +25,20 @@ export default async function DashboardPage() {
     redirect("/onboarding");
   }
 
-  const [progressHistory, activeMealPlan, weeklyComparison, subscription] = await Promise.all([
-    getProgressHistory(),
-    getActiveMealPlan(),
-    getWeeklyComparison(),
-    getSubscription(),
-  ]);
+  if (user) {
+    // Sem cron ainda: lembrete de progresso é checado (e, se preciso,
+    // criado) a cada visita ao dashboard — ver src/lib/notifications/triggers.ts.
+    await notifyProgressReminder(supabase, user.id);
+  }
+
+  const [progressHistory, activeMealPlan, weeklyComparison, subscription, unreadCount] =
+    await Promise.all([
+      getProgressHistory(),
+      getActiveMealPlan(),
+      getWeeklyComparison(),
+      getSubscription(),
+      getUnreadNotificationCount(),
+    ]);
 
   const premium = isPremiumActive(subscription);
   const latestWeight = [...progressHistory].reverse().find((e) => e.weight !== null)?.weight ?? profile.weight;
@@ -45,6 +55,16 @@ export default async function DashboardPage() {
             </p>
           </div>
           <div className="flex items-center gap-2">
+            <Link href="/notificacoes" className="relative">
+              <Button variant="secondary">
+                🔔
+                {unreadCount > 0 && (
+                  <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 text-[10px] font-semibold text-white">
+                    {unreadCount}
+                  </span>
+                )}
+              </Button>
+            </Link>
             <Link href="/assinatura">
               <Button variant={premium ? "secondary" : "primary"}>
                 {premium ? "Premium ✓" : "Assinar Premium"}
