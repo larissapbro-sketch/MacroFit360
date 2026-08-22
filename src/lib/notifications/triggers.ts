@@ -118,3 +118,29 @@ export async function notifyProgressReminder(
     );
   }
 }
+
+/**
+ * Marco de proteína do diário alimentar (spec seção 19, tipo "nutrição" —
+ * ex.: "Você bateu 80% da sua meta de proteína hoje!"). Chamada sempre que
+ * o usuário registra um item consumido; dispara no máximo uma vez por dia
+ * assim que o total do dia cruza 80% da meta.
+ */
+export async function notifyNutritionMilestone(
+  supabase: SupabaseClient,
+  userId: string,
+  proteinConsumed: number,
+  proteinTarget: number
+): Promise<void> {
+  if (proteinTarget <= 0) return;
+  const percent = Math.round((proteinConsumed / proteinTarget) * 100);
+
+  if (percent >= 80) {
+    await insertNotificationOnce(
+      supabase,
+      userId,
+      "nutricao",
+      "Meta de proteína quase lá",
+      `Você bateu ${percent}% da sua meta de proteína hoje!`
+    );
+  }
+}

@@ -6,6 +6,9 @@ import { MEAL_TYPES, MEAL_TYPE_LABELS } from "@/lib/ai/meal-plan/schema";
 import { Card } from "@/components/ui/card";
 import { GenerateMealPlanButton } from "./generate-meal-plan-button";
 import { SubstituteMealItem } from "./substitute-meal-item";
+import { LogMealItemButton } from "./log-meal-item-button";
+import { DailyLogSummary } from "./daily-log-summary";
+import { getTodayLog } from "@/lib/daily-log/queries";
 
 export default async function PlanoAlimentarPage() {
   const profile = await getProfile();
@@ -13,7 +16,7 @@ export default async function PlanoAlimentarPage() {
     redirect("/onboarding");
   }
 
-  const plan = await getActiveMealPlan();
+  const [plan, todayLog] = await Promise.all([getActiveMealPlan(), getTodayLog()]);
 
   const mealsByType = MEAL_TYPES.map((type) => ({
     type,
@@ -59,6 +62,12 @@ export default async function PlanoAlimentarPage() {
         </Card>
       )}
 
+      {plan && (
+        <Card>
+          <DailyLogSummary log={todayLog} targets={plan} />
+        </Card>
+      )}
+
       <GenerateMealPlanButton hasPlan={!!plan} />
 
       {!plan && (
@@ -88,19 +97,22 @@ export default async function PlanoAlimentarPage() {
                     Alternativas: {item.alternatives.join(", ")}
                   </p>
                 )}
-                <SubstituteMealItem
-                  itemId={item.id}
-                  context={{
-                    mealTypeLabel: group.label,
-                    food: item.food,
-                    quantity: item.quantity,
-                    calories: item.calories,
-                    protein: item.protein,
-                    carbs: item.carbs,
-                    fat: item.fat,
-                    alternatives: item.alternatives,
-                  }}
-                />
+                <div className="flex items-center gap-3">
+                  <SubstituteMealItem
+                    itemId={item.id}
+                    context={{
+                      mealTypeLabel: group.label,
+                      food: item.food,
+                      quantity: item.quantity,
+                      calories: item.calories,
+                      protein: item.protein,
+                      carbs: item.carbs,
+                      fat: item.fat,
+                      alternatives: item.alternatives,
+                    }}
+                  />
+                  <LogMealItemButton itemId={item.id} />
+                </div>
               </li>
             ))}
           </ul>

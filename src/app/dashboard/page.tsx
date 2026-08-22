@@ -9,6 +9,7 @@ import { getWeeklyComparison } from "@/lib/dashboard/queries";
 import { getSubscription, isPremiumActive } from "@/lib/subscription/queries";
 import { getUnreadNotificationCount } from "@/lib/notifications/queries";
 import { notifyProgressReminder } from "@/lib/notifications/triggers";
+import { getTodayLog } from "@/lib/daily-log/queries";
 import { signOut } from "@/lib/auth/actions";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -31,13 +32,14 @@ export default async function DashboardPage() {
     await notifyProgressReminder(supabase, user.id);
   }
 
-  const [progressHistory, activeMealPlan, weeklyComparison, subscription, unreadCount] =
+  const [progressHistory, activeMealPlan, weeklyComparison, subscription, unreadCount, todayLog] =
     await Promise.all([
       getProgressHistory(),
       getActiveMealPlan(),
       getWeeklyComparison(),
       getSubscription(),
       getUnreadNotificationCount(),
+      getTodayLog(),
     ]);
 
   const premium = isPremiumActive(subscription);
@@ -128,15 +130,15 @@ export default async function DashboardPage() {
             <dd className="text-lg font-semibold">{latestWeight} kg</dd>
           </div>
           <div>
-            <dt className="text-muted">Meta calórica</dt>
+            <dt className="text-muted">Calorias hoje</dt>
             <dd className="text-lg font-semibold">
-              {activeMealPlan ? `${activeMealPlan.dailyCalories} kcal` : "—"}
+              {activeMealPlan ? `${todayLog.calories} / ${activeMealPlan.dailyCalories} kcal` : "—"}
             </dd>
           </div>
           <div>
-            <dt className="text-muted">Meta de proteína</dt>
+            <dt className="text-muted">Proteína hoje</dt>
             <dd className="text-lg font-semibold">
-              {activeMealPlan ? `${activeMealPlan.proteinTarget} g` : "—"}
+              {activeMealPlan ? `${todayLog.protein} / ${activeMealPlan.proteinTarget} g` : "—"}
             </dd>
           </div>
           <div>

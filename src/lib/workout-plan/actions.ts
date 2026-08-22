@@ -9,6 +9,7 @@ import type { WorkoutPlanPromptInput } from "@/lib/ai/workout-plan/prompt";
 import type { WorkoutPlanResponse } from "@/lib/ai/workout-plan/schema";
 import { getSubscription, isPremiumActive } from "@/lib/subscription/queries";
 import { canGenerate } from "@/lib/subscription/limits";
+import { determineNextDifficulty, type Difficulty } from "@/lib/calculations/workout-progression";
 
 export interface GenerateWorkoutPlanActionResult {
   error?: string;
@@ -19,10 +20,50 @@ const MAX_ATTEMPTS = 2;
 const GENERIC_ERROR =
   "Não conseguimos gerar seu plano de treino agora. Tente novamente em instantes.";
 
-// A progressão de dificuldade (spec seção 16 — baseada em % de adesão ao
-// longo das semanas) ainda não está implementada; por enquanto todo plano
-// novo começa como "iniciante". Isso é uma decisão do sistema, não da IA.
-const DEFAULT_DIFFICULTY = "iniciante" as const;
+// Quantas semanas recentes olhar para decidir progressão (spec seção 16:
+// precisa de pelo menos 2 semanas seguidas com 90%+ para a progressão
+// "adicional" de 2 níveis de uma vez).
+const PROGRESSION_LOOKBACK_WEEKS = 3;
+
+interface RecentWeekAdherence {
+  difficulty: Difficulty;
+  adherencePercent: number;
+}
+
+/**
+ * Busca as últimas semanas de treino do usuário (mais recente primeiro)
+ * com a dificuldade e o % de adesão de cada uma, para alimentar a regra
+ * de progressão (spec seção 16).
+ */
+async function getRecentWorkoutAdherence(
+  supabase: SupabaseClient,
+  userId: string
+): Promise<RecentWeekAdherence[]> {
+  const { data: plans } = await supabase
+    .from("workout_plans")
+    .select("id, difficulty")
+    .eq("user_id", userId)
+    .order("week", { ascending: false })
+    .limit(PROGRESSION_LOOKBACK_WEEKS);
+
+  const results: RecentWeekAdherence[] = [];
+  for (const plan of plans ?? []) {
+    const { data: sessions } = await supabase
+      .from("workout_sessions")
+      .select("completed")
+      .eq("workout_plan_id", plan.id);
+
+    const total = sessions?.length ?? 0;
+    const done = sessions?.filter((s) => s.completed).length ?? 0;
+
+    results.push({
+      difficulty: plan.difficulty as Difficulty,
+      adherencePercent: total > 0 ? Math.round((done / total) * 100) : 0,
+    });
+  }
+
+  return results;
+}
 
 // useActionState sempre chama a action com (state, formData); como este
 // fluxo não depende de nenhum campo de formulário, os parâmetros são
@@ -61,11 +102,26 @@ export async function generateWorkoutPlanAction(): Promise<GenerateWorkoutPlanAc
     };
   }
 
+  // Progressão de dificuldade (spec seção 16): decidida pelo SISTEMA, não
+  // pela IA, a partir da adesão real registrada nas semanas anteriores.
+  const recentAdherence = await getRecentWorkoutAdherence(supabase, user.id);
+  const previous = recentAdherence[0] ?? null;
+  let consecutiveHighAdherenceWeeks = 0;
+  for (const week of recentAdherence) {
+    if (week.adherencePercent >= 90) consecutiveHighAdherenceWeeks++;
+    else break;
+  }
+  const difficulty = determineNextDifficulty(
+    previous?.difficulty ?? "iniciante",
+    previous?.adherencePercent ?? null,
+    consecutiveHighAdherenceWeeks
+  );
+
   const promptInput: WorkoutPlanPromptInput = {
     goal: profile.goal,
     trainingDays: profile.trainingDays,
     equipment: profile.equipment,
-    difficulty: DEFAULT_DIFFICULTY,
+    difficulty,
   };
 
   let lastError = GENERIC_ERROR;
