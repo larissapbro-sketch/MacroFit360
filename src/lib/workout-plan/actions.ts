@@ -7,6 +7,8 @@ import { getProfile } from "@/lib/profile/queries";
 import { generateWorkoutPlanFromClaude } from "@/lib/ai/workout-plan/generate";
 import type { WorkoutPlanPromptInput } from "@/lib/ai/workout-plan/prompt";
 import type { WorkoutPlanResponse } from "@/lib/ai/workout-plan/schema";
+import { getSubscription, isPremiumActive } from "@/lib/subscription/queries";
+import { canGenerate } from "@/lib/subscription/limits";
 
 export interface GenerateWorkoutPlanActionResult {
   error?: string;
@@ -43,6 +45,19 @@ export async function generateWorkoutPlanAction(): Promise<GenerateWorkoutPlanAc
   if (profile.trainingDays <= 0) {
     return {
       error: "Você informou 0 dias disponíveis para treino. Atualize seu perfil para gerar um plano.",
+    };
+  }
+
+  const subscription = await getSubscription();
+  const { allowed, used, limit } = await canGenerate(
+    supabase,
+    user.id,
+    "workout_plan",
+    isPremiumActive(subscription)
+  );
+  if (!allowed) {
+    return {
+      error: `Você atingiu o limite do plano gratuito (${used}/${limit} treinos gerados). Assine o Premium para gerar ilimitado.`,
     };
   }
 

@@ -8,6 +8,8 @@ import { calculateNutritionTargets, type NutritionTargets } from "@/lib/calculat
 import { generateMealPlanFromClaude } from "@/lib/ai/meal-plan/generate";
 import type { MealPlanPromptInput } from "@/lib/ai/meal-plan/prompt";
 import type { MealPlanResponse } from "@/lib/ai/meal-plan/schema";
+import { getSubscription, isPremiumActive } from "@/lib/subscription/queries";
+import { canGenerate } from "@/lib/subscription/limits";
 
 export interface GenerateMealPlanActionResult {
   error?: string;
@@ -40,6 +42,19 @@ export async function generateMealPlanAction(): Promise<GenerateMealPlanActionRe
   const profile = await getProfile();
   if (!profile) {
     return { error: "Complete seu perfil antes de gerar um plano alimentar." };
+  }
+
+  const subscription = await getSubscription();
+  const { allowed, used, limit } = await canGenerate(
+    supabase,
+    user.id,
+    "meal_plan",
+    isPremiumActive(subscription)
+  );
+  if (!allowed) {
+    return {
+      error: `Você atingiu o limite do plano gratuito (${used}/${limit} cardápios gerados). Assine o Premium para gerar ilimitado.`,
+    };
   }
 
   const targets = calculateNutritionTargets({

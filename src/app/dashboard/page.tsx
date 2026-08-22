@@ -6,6 +6,7 @@ import { GOAL_LABELS, EQUIPMENT_LABELS, SEX_LABELS } from "@/lib/profile/schema"
 import { getProgressHistory } from "@/lib/progress/queries";
 import { getActiveMealPlan } from "@/lib/meal-plan/queries";
 import { getWeeklyComparison } from "@/lib/dashboard/queries";
+import { getSubscription, isPremiumActive } from "@/lib/subscription/queries";
 import { signOut } from "@/lib/auth/actions";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -22,12 +23,14 @@ export default async function DashboardPage() {
     redirect("/onboarding");
   }
 
-  const [progressHistory, activeMealPlan, weeklyComparison] = await Promise.all([
+  const [progressHistory, activeMealPlan, weeklyComparison, subscription] = await Promise.all([
     getProgressHistory(),
     getActiveMealPlan(),
     getWeeklyComparison(),
+    getSubscription(),
   ]);
 
+  const premium = isPremiumActive(subscription);
   const latestWeight = [...progressHistory].reverse().find((e) => e.weight !== null)?.weight ?? profile.weight;
   const { currentWorkout, previousWorkout, currentMeal, previousMeal } = weeklyComparison;
 
@@ -41,9 +44,16 @@ export default async function DashboardPage() {
               Logado como <span className="font-medium text-foreground">{user?.email}</span>
             </p>
           </div>
-          <Link href="/perfil">
-            <Button variant="secondary">Editar perfil</Button>
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link href="/assinatura">
+              <Button variant={premium ? "secondary" : "primary"}>
+                {premium ? "Premium ✓" : "Assinar Premium"}
+              </Button>
+            </Link>
+            <Link href="/perfil">
+              <Button variant="secondary">Editar perfil</Button>
+            </Link>
+          </div>
         </div>
 
         <dl className="grid grid-cols-2 gap-4 border-t border-surface-border pt-4 text-sm sm:grid-cols-3">
@@ -130,8 +140,22 @@ export default async function DashboardPage() {
         <WeightChart history={progressHistory} />
       </Card>
 
-      {/* Comparativo semanal — spec seção 17 */}
-      {(currentWorkout || currentMeal) && (
+      {/* Comparativo semanal — recurso avançado, exclusivo Premium (spec seção 22) */}
+      {(currentWorkout || currentMeal) && !premium && (
+        <Card>
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="font-semibold">Comparativo semanal</h2>
+              <p className="text-sm text-muted">Recurso avançado disponível no Premium.</p>
+            </div>
+            <Link href="/assinatura">
+              <Button variant="secondary">Assinar Premium</Button>
+            </Link>
+          </div>
+        </Card>
+      )}
+
+      {(currentWorkout || currentMeal) && premium && (
         <Card>
           <h2 className="mb-3 font-semibold">Comparativo semanal</h2>
           <div className="overflow-x-auto">
