@@ -1,0 +1,312 @@
+================================================================================
+MACROFIT 360° — MASTER DESIGN DOCUMENT
+Documento vivo de progresso, decisões e pendências
+Última atualização: 22/08/2026
+================================================================================
+
+------------------------------------------------------------------------------
+1. VISÃO GERAL
+------------------------------------------------------------------------------
+App de alimentação, treino e acompanhamento físico com IA. Regras de negócio
+(cálculos, limites, permissões, assinatura) controladas pelo sistema; a IA é
+usada para personalização e geração de conteúdo, nunca como fonte de verdade
+para regras críticas.
+
+Repositório:   https://github.com/larissapbro-sketch/MacroFit360
+Produção:      https://macrofit360.vercel.app
+Banco:         Supabase (projeto rrvjqjhxkafcczqqfiqq)
+
+
+------------------------------------------------------------------------------
+2. STACK TÉCNICA
+------------------------------------------------------------------------------
+- Next.js 16 (App Router, Turbopack) + TypeScript + Tailwind CSS
+- Supabase: Postgres + Auth + RLS
+- IA: Anthropic Claude (modelo claude-sonnet-4-5-20250929) via @anthropic-ai/sdk,
+  usando tool use para forçar resposta estruturada (JSON) validada com Zod
+- Pagamentos: Stripe (Checkout + Webhooks), modo TESTE (sk_test_...)
+- Gráficos: Recharts
+- E-mail transacional: Resend (em configuração — ver seção 8)
+- Deploy: Vercel, projeto "macrofit360", ligado ao GitHub (deploy automático
+  a cada push na main)
+
+
+------------------------------------------------------------------------------
+3. ESTRUTURA DE PASTAS
+------------------------------------------------------------------------------
+src/
+  app/                        rotas (App Router)
+    onboarding/, perfil/, dashboard/, plano-alimentar/, plano-treino/,
+    progresso/, assinatura/, notificacoes/, api/webhooks/stripe/
+  components/ui/              Button, Input, Card, Checkbox, Label, FormMessage
+  lib/
+    auth/                     actions (login/cadastro/logout/reset)
+    profile/                  schema, queries, actions do perfil
+    calculations/             nutrition.ts (TMB/macros), workout-progression.ts
+    ai/
+      client.ts                client Anthropic (server-only)
+      meal-plan/, workout-plan/, substitution/   prompt+schema+generate por feature
+    meal-plan/, workout-plan/  queries + actions (orquestram cálculo→IA→validação→save)
+    daily-log/                diário alimentar (consumo real)
+    progress/                 registro de peso/medidas
+    dashboard/                queries de comparativo semanal
+    subscription/              status de assinatura, limites free, Stripe
+    notifications/             regras de notificação in-app (triggers.ts)
+    db/                        supabase-browser.ts, supabase-server.ts, supabase-admin.ts
+supabase/migrations/          0001 a 0004 (schema, RLS, policies extras)
+src/proxy.ts                  middleware de sessão (exclui /api/* de propósito)
+
+
+------------------------------------------------------------------------------
+4. STATUS POR FASE — TUDO IMPLEMENTADO E TESTADO
+------------------------------------------------------------------------------
+
+FASE 1 — FUNDAÇÃO ......................................... CONCLUÍDA
+  - Next.js + TS + Tailwind, design system básico (tokens de cor, componentes)
+  - Auth Supabase: cadastro, login, logout, recuperação de senha
+  - Middleware protegendo rotas privadas
+  - Schema completo (10 tabelas) com RLS por user_id em TODAS as tabelas
+  - Bug real encontrado e corrigido: projeto Supabase tinha schema órfão de
+    uso anterior no Lasy AI (14 tabelas, ex.: conversations, meal_logs) —
+    limpo e recriado do zero
+  - .env.example corrigido: nunca tinha sido commitado (regra .env* do
+    .gitignore bloqueava ele também)
+
+FASE 2 — CADASTRO/ONBOARDING .............................. CONCLUÍDA
+  - Onboarding: peso, altura, idade, sexo, objetivo, dias de treino,
+    equipamentos, orçamento semanal
+  - /perfil para edição, mesma action (upsert) do onboarding
+  - Dashboard mostra resumo do perfil
+
+FASE 3 — IA PLANNER ........................................ CONCLUÍDA
+  - Cálculos SEM IA: TMB (Mifflin-St Jeor), TDEE por fator de atividade,
+    ajuste calórico por objetivo, macros (proteína g/kg, gordura 25% cal,
+    carboidrato no restante) — arquivo: lib/calculations/nutrition.ts
+  - Geração de cardápio via IA: prompt construído a partir das metas
+    calculadas, resposta forçada via tool use, validada em 2 camadas
+    (schema Zod + regra de negócio: soma de calorias/macros dentro de
+    tolerância de 20% da meta)
+  - Geração de treino via IA: mesma arquitetura, valida que o nº de dias
+    do plano bate exatamente com os dias disponíveis do usuário
+  - Retry (até 2 tentativas) com FEEDBACK do erro da tentativa anterior
+  - Nunca salva plano incompleto/inválido; log de auditoria em
+    ai_generations sempre (sucesso ou falha)
+  - Substituições inteligentes: usuário pode pedir troca de item (texto
+    livre ou clique em alternativa sugerida), IA gera substituto dentro de
+    20% de tolerância nos macros do item original
+  - TESTADO com chamadas reais à API: caso real de rejeição por macro fora
+    da tolerância (188g proteína vs meta 160g) levou ao ajuste de 15%→20%
+    de tolerância
+
+FASE 4 — DASHBOARD ......................................... CONCLUÍDA
+  - Registro de progresso: peso, medidas (cintura/quadril/peito/braço/coxa),
+    observações
+  - Checkbox de conclusão por exercício em /plano-treino
+  - Resumo: peso atual, metas, treinos concluídos, % consistência
+  - Gráfico de evolução do peso (Recharts)
+  - Comparativo semanal (adesão, treinos, metas — semana anterior vs atual)
+  - Decisão de escopo registrada: gráficos de calorias/proteína consumidas
+    dependiam de diário alimentar, que NÃO existia nessa fase — resolvido
+    depois (ver seção 6)
+
+FASE 5 — PREMIUM ........................................... CONCLUÍDA
+  - Limite Free reinterpretado (decisão do usuário) como CONTADOR DE
+    GERAÇÕES bem-sucedidas via IA (não limite de dias dentro de 1 plano):
+    3 cardápios, 2 treinos — contagem via ai_generations
+  - Checagem sempre no servidor, dentro das próprias actions de geração
+  - Assinatura Premium via Stripe: Checkout Session criada sob demanda
+    (price_data inline, sem produto pré-cadastrado), R$ 39,00/mês
+  - Webhook em /api/webhooks/stripe: verifica assinatura HMAC, trata
+    checkout.session.completed, customer.subscription.updated/deleted,
+    grava em `subscriptions` via client admin (service_role)
+  - Status da assinatura NUNCA alterado pelo frontend — só o webhook
+    confirma e persiste
+  - BUG CRÍTICO encontrado e corrigido: middleware estava bloqueando
+    /api/* com redirect 307 pra /login (webhook nunca chegaria à rota em
+    produção) — só descoberto testando com Stripe CLI real
+  - TESTADO de ponta a ponta com Stripe CLI: checkout → upgrade → downgrade/
+    cancelamento, tudo via webhook real (não simulado)
+
+FASE 6 — NOTIFICAÇÕES (in-app) ............................. CONCLUÍDA
+  - Decisão de escopo: canal in-app apenas por enquanto (sem push/e-mail),
+    confirmado com o usuário
+  - Notificações nascem de EVENTOS reais (marcar treino concluído) ou são
+    checadas ao carregar o dashboard (lembrete de progresso) — SEM cron
+    ainda (ver pendência na seção 7)
+  - Dedup por título+dia evita notificação duplicada
+  - Sino com badge de não lidas no dashboard, /notificacoes lista tudo e
+    marca como lido ao abrir
+  - Regras implementadas: motivacional ao concluir treino, marco de 80%/
+    100% de adesão semanal, lembrete de progresso (7+ dias sem registro),
+    marco de proteína do diário alimentar (adicionado depois, junto do
+    diário alimentar — ver seção 6)
+
+FASE 7 — TESTES FINAIS ...................................... CONCLUÍDA
+  - Checklist completa rodada: cadastro, login, logout, recuperação de
+    senha (fluxo de solicitação), onboarding, geração de dieta/treino,
+    segurança entre usuários (testado via UI com 2 contas reais, não só
+    RLS no banco), limites Free (bloqueio REAL testado, não só o contador)
+  - Responsividade mobile (375x812): bug real encontrado e corrigido —
+    cabeçalho do dashboard vazava da tela (scrollWidth 584px vs 375px)
+
+
+------------------------------------------------------------------------------
+5. DEPLOY — STATUS ATUAL
+------------------------------------------------------------------------------
+✅ Produção no ar: https://macrofit360.vercel.app
+✅ Projeto Vercel "macrofit360" ligado ao GitHub (larissapbro-sketch/MacroFit360)
+   — push na main dispara deploy automático
+✅ Limpeza: 2 projetos Vercel órfãos do Lasy AI removidos
+   (macro-fit-360, macro-fit-360-oo54 — 276 dias parados, mesma origem do
+   schema órfão do Supabase da Fase 1)
+✅ Variáveis de ambiente de produção configuradas na Vercel:
+   NEXT_PUBLIC_SITE_URL, NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY,
+   SUPABASE_SERVICE_ROLE_KEY, ANTHROPIC_API_KEY, STRIPE_SECRET_KEY,
+   STRIPE_WEBHOOK_SECRET
+✅ Webhook do Stripe em produção testado com evento REAL (Stripe CLI trigger
+   → endpoint https://macrofit360.vercel.app/api/webhooks/stripe →
+   subscriptions atualizada → dashboard refletiu "Premium")
+✅ Login testado em produção com dados reais do Supabase
+
+
+------------------------------------------------------------------------------
+6. PENDÊNCIAS RESOLVIDAS APÓS A FASE 7
+------------------------------------------------------------------------------
+
+6.1 DIÁRIO ALIMENTAR (resolvia lacuna da Fase 4/6)
+  - Botão "+ Comi isso hoje" em cada item do cardápio, soma incremental em
+    daily_logs (upsert por user_id+log_date)
+  - /plano-alimentar mostra "consumido hoje" vs meta, com botão "Zerar hoje"
+  - Dashboard "Resumo" agora mostra calorias/proteína de HOJE vs meta
+  - Notificação de nutrição implementada: "Você bateu X% da sua meta de
+    proteína hoje!" ao cruzar 80%
+  - TESTADO: soma exata confirmada (140+120=260 kcal, 12+6=18g proteína)
+
+6.2 PROGRESSÃO AUTOMÁTICA DE DIFICULDADE DE TREINO (spec seção 16)
+  - lib/calculations/workout-progression.ts: regra pura e testada isoladamente
+    < 60% adesão  → mantém ou reduz 1 nível
+    60% a 79%     → mantém nível atual
+    >= 80%        → sobe 1 nível
+    >= 90% sustentado por 2+ semanas seguidas → sobe 2 níveis (teto: avançado)
+  - Decidido pelo SISTEMA (não pela IA), calculado a partir da adesão real
+    das últimas 3 semanas, antes de chamar a IA
+  - TESTADO de ponta a ponta: marquei 14/15 exercícios concluídos (93%),
+    gerei a semana seguinte → nasceu "Intermediário" (era "Iniciante"),
+    com volume proporcionalmente maior (4 séries/19 exercícios vs 3/15)
+
+
+------------------------------------------------------------------------------
+7. PENDÊNCIAS EM ABERTO
+------------------------------------------------------------------------------
+
+7.1 CONFIRMAÇÃO DE E-MAIL — EM ANDAMENTO
+  Contexto: confirmação de e-mail está DESATIVADA no Supabase Auth desde a
+  Fase 1 (decisão do usuário, pra destravar testes — o serviço de e-mail
+  padrão do Supabase free tier é pouco confiável).
+
+  Decisão tomada agora: configurar Resend como provedor SMTP antes de
+  reativar.
+    - Conta Resend criada, API key gerada (guardada apenas na conversa com
+      o usuário e no painel do Supabase/Resend — NUNCA commitada no repo)
+    - LIMITAÇÃO CONHECIDA: sem domínio verificado, o Resend só entrega
+      e-mails para o endereço da própria conta (larissapbro@gmail.com) —
+      não funciona para usuários reais ainda
+    - Usuário tem conta Cloudflare mas AINDA NÃO comprou um domínio
+      (decisão financeira, precisa ser feita por ele mesmo — Claude não
+      pode comprar/inserir pagamento)
+    - Decisão: configurar em modo sandbox por agora; quando o domínio for
+      comprado, é só verificar no Resend (minutos) e passa a funcionar
+      para todo mundo, sem precisar reconfigurar nada
+
+  PASSOS PENDENTES (aguardando o usuário confirmar que fez, no painel do
+  Supabase — Claude não tem acesso direto):
+    1. Authentication → Emails/SMTP Settings → Enable Custom SMTP:
+         Sender email: onboarding@resend.dev
+         Sender name:  MacroFit 360°
+         Host:         smtp.resend.com
+         Port:         465
+         Username:     resend
+         Password:     <API key do Resend — pegar em resend.com/api-keys,
+                        já compartilhada com o Claude na conversa>
+    2. Authentication → URL Configuration → Redirect URLs: adicionar
+         https://macrofit360.vercel.app/**
+    3. Authentication → Sign In / Providers → Email → ativar "Confirm email"
+    4. Claude testa cadastro de ponta a ponta (com e-mail próprio do
+       usuário, já que ainda em sandbox)
+
+  PRÓXIMO PASSO FUTURO (quando o usuário comprar um domínio):
+    - Verificar o domínio no Resend (Domains → Add Domain → registros DNS)
+    - Trocar o "Sender email" de onboarding@resend.dev para um endereço do
+      domínio próprio (ex.: naoresponda@macrofit360.com)
+    - A partir daí, e-mails passam a funcionar para qualquer usuário real
+
+7.2 NOTIFICAÇÕES AGENDADAS DE VERDADE (spec seção 20)
+  Contexto: hoje as notificações in-app nascem de EVENTOS reais (marcar
+  treino concluído) ou são checadas ao carregar o dashboard — não de
+  horários configurados como a spec pede.
+
+  Decisão tomada: manter canal in-app (sem push/e-mail por enquanto),
+  evoluir apenas o AGENDAMENTO usando Vercel Cron (agora que o deploy
+  existe, isso é possível).
+
+  PENDENTE DE IMPLEMENTAR:
+    - Criar vercel.json com um Cron Job (ex.: rodar 1x/dia) apontando para
+      uma nova rota /api/cron/notifications
+    - A rota roda as mesmas regras de lib/notifications/triggers.ts, mas
+      para TODOS os usuários (não só o que está com o dashboard aberto)
+    - Proteger a rota de cron contra chamadas externas não autorizadas
+      (Vercel Cron manda um header de autenticação — validar isso)
+    - Precisa rodar com o client admin (service_role), já que não há
+      usuário logado no contexto de um cron job
+
+7.3 DOMÍNIO PRÓPRIO
+  - Usuário tem conta Cloudflare, mas não comprou domínio ainda
+  - Compra é decisão financeira do usuário (Claude não pode comprar em
+    nome dele nem inserir dados de pagamento)
+  - Quando comprado: apontar DNS pro Vercel (domínio custom) + verificar
+    no Resend (ver 7.1)
+
+
+------------------------------------------------------------------------------
+8. LIMITAÇÕES/DECISÕES DE ESCOPO REGISTRADAS (não são bugs)
+------------------------------------------------------------------------------
+  - Substituições e diário alimentar não têm "desfazer" granular por item
+    (diário tem "zerar tudo", substituição não tem desfazer — regenerar o
+    plano resolve)
+  - Notificações são só in-app (sem push/e-mail) — decisão confirmada
+  - Sem diário de treino "por data calendário" — workout_sessions.day é o
+    número do dia dentro do plano (1..N), não uma data. A adesão semanal é
+    calculada por PLANO/SEMANA, não por dia corrido
+  - Limite Free é contador de gerações vitalício (não reseta mensalmente)
+    — decisão consciente para não alterar a arquitetura de meal_plans/
+    workout_plans de 1 template por vez
+
+
+------------------------------------------------------------------------------
+9. CREDENCIAIS E CONTAS CONFIGURADAS (sem expor valores — só o que existe)
+------------------------------------------------------------------------------
+  - GitHub: larissapbro-sketch/MacroFit360
+  - Supabase: projeto rrvjqjhxkafcczqqfiqq (URL, anon key, service_role key
+    configuradas local e em produção)
+  - Anthropic: API key configurada (créditos ativos, testado com uso real)
+  - Stripe: conta em modo TESTE (sk_test_...), webhook de produção criado
+    via API apontando pra https://macrofit360.vercel.app/api/webhooks/stripe
+  - Vercel: conta larissapbro-sketch, projeto "macrofit360"
+  - Resend: conta criada, API key gerada, SEM domínio verificado ainda
+  - Cloudflare: conta criada, SEM domínio comprado ainda
+
+
+------------------------------------------------------------------------------
+10. PRÓXIMOS PASSOS IMEDIATOS (em ordem)
+------------------------------------------------------------------------------
+  [ ] 1. Usuário completa a configuração de SMTP + redirect URLs + reativar
+         confirmação de e-mail no painel do Supabase (seção 7.1)
+  [ ] 2. Claude testa cadastro de ponta a ponta com e-mail confirmado de
+         verdade
+  [ ] 3. Implementar Vercel Cron para notificações agendadas (seção 7.2)
+  [ ] 4. (Quando o usuário decidir) comprar domínio na Cloudflare, verificar
+         no Resend, apontar no Vercel (seção 7.3)
+
+================================================================================
+FIM DO DOCUMENTO — atualizar conforme o progresso avança
+================================================================================
