@@ -5,6 +5,7 @@ import { getActiveMealPlan } from "@/lib/meal-plan/queries";
 import { MEAL_TYPES, MEAL_TYPE_LABELS } from "@/lib/ai/meal-plan/schema";
 import { Card } from "@/components/ui/card";
 import { GenerateMealPlanButton } from "./generate-meal-plan-button";
+import { SubstituteMealItem } from "./substitute-meal-item";
 
 export default async function PlanoAlimentarPage() {
   const profile = await getProfile();
@@ -87,6 +88,19 @@ export default async function PlanoAlimentarPage() {
                     Alternativas: {item.alternatives.join(", ")}
                   </p>
                 )}
+                <SubstituteMealItem
+                  itemId={item.id}
+                  context={{
+                    mealTypeLabel: group.label,
+                    food: item.food,
+                    quantity: item.quantity,
+                    calories: item.calories,
+                    protein: item.protein,
+                    carbs: item.carbs,
+                    fat: item.fat,
+                    alternatives: item.alternatives,
+                  }}
+                />
               </li>
             ))}
           </ul>
