@@ -58,6 +58,10 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    // /api fora do escopo de propósito: rotas de API (como webhooks do
+    // Stripe) não têm sessão de cookie do usuário e devem implementar sua
+    // própria autenticação (ex.: verificação de assinatura HMAC). Redirecionar
+    // essas chamadas para /login quebra a requisição de quem as originou.
+    "/((?!_next/static|_next/image|favicon.ico|api/|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };
