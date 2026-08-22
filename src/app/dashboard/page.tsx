@@ -3,9 +3,13 @@ import Link from "next/link";
 import { createClient } from "@/lib/db/supabase-server";
 import { getProfile } from "@/lib/profile/queries";
 import { GOAL_LABELS, EQUIPMENT_LABELS, SEX_LABELS } from "@/lib/profile/schema";
+import { getProgressHistory } from "@/lib/progress/queries";
+import { getActiveMealPlan } from "@/lib/meal-plan/queries";
+import { getWeeklyComparison } from "@/lib/dashboard/queries";
 import { signOut } from "@/lib/auth/actions";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { WeightChart } from "./weight-chart";
 
 export default async function DashboardPage() {
   const supabase = await createClient();
@@ -17,6 +21,15 @@ export default async function DashboardPage() {
   if (!profile) {
     redirect("/onboarding");
   }
+
+  const [progressHistory, activeMealPlan, weeklyComparison] = await Promise.all([
+    getProgressHistory(),
+    getActiveMealPlan(),
+    getWeeklyComparison(),
+  ]);
+
+  const latestWeight = [...progressHistory].reverse().find((e) => e.weight !== null)?.weight ?? profile.weight;
+  const { currentWorkout, previousWorkout, currentMeal, previousMeal } = weeklyComparison;
 
   return (
     <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-6 py-12">
@@ -76,6 +89,109 @@ export default async function DashboardPage() {
         </dl>
       </Card>
 
+      {/* Resumo — spec seção 17 */}
+      <Card>
+        <h2 className="mb-3 font-semibold">Resumo</h2>
+        <dl className="grid grid-cols-2 gap-4 text-sm sm:grid-cols-3">
+          <div>
+            <dt className="text-muted">Peso atual</dt>
+            <dd className="text-lg font-semibold">{latestWeight} kg</dd>
+          </div>
+          <div>
+            <dt className="text-muted">Meta calórica</dt>
+            <dd className="text-lg font-semibold">
+              {activeMealPlan ? `${activeMealPlan.dailyCalories} kcal` : "—"}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-muted">Meta de proteína</dt>
+            <dd className="text-lg font-semibold">
+              {activeMealPlan ? `${activeMealPlan.proteinTarget} g` : "—"}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-muted">Treinos concluídos</dt>
+            <dd className="text-lg font-semibold">
+              {currentWorkout ? `${currentWorkout.completedSessions}/${currentWorkout.totalSessions}` : "—"}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-muted">Consistência</dt>
+            <dd className="text-lg font-semibold">
+              {currentWorkout ? `${currentWorkout.adherencePercent}%` : "—"}
+            </dd>
+          </div>
+        </dl>
+      </Card>
+
+      {/* Gráfico de evolução do peso — spec seção 17/18 */}
+      <Card>
+        <h2 className="mb-3 font-semibold">Evolução do peso</h2>
+        <WeightChart history={progressHistory} />
+      </Card>
+
+      {/* Comparativo semanal — spec seção 17 */}
+      {(currentWorkout || currentMeal) && (
+        <Card>
+          <h2 className="mb-3 font-semibold">Comparativo semanal</h2>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[420px] text-sm">
+              <thead>
+                <tr className="text-left text-muted">
+                  <th className="pb-2 font-normal"></th>
+                  <th className="pb-2 font-normal">
+                    Semana anterior{previousWorkout ? ` (${previousWorkout.week})` : ""}
+                  </th>
+                  <th className="pb-2 font-normal">
+                    Semana atual{currentWorkout ? ` (${currentWorkout.week})` : ""}
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-surface-border">
+                <tr>
+                  <td className="py-2 text-muted">Adesão ao treino</td>
+                  <td className="py-2">
+                    {previousWorkout ? `${previousWorkout.adherencePercent}%` : "—"}
+                  </td>
+                  <td className="py-2 font-medium">
+                    {currentWorkout ? `${currentWorkout.adherencePercent}%` : "—"}
+                  </td>
+                </tr>
+                <tr>
+                  <td className="py-2 text-muted">Treinos concluídos</td>
+                  <td className="py-2">
+                    {previousWorkout
+                      ? `${previousWorkout.completedSessions}/${previousWorkout.totalSessions}`
+                      : "—"}
+                  </td>
+                  <td className="py-2 font-medium">
+                    {currentWorkout
+                      ? `${currentWorkout.completedSessions}/${currentWorkout.totalSessions}`
+                      : "—"}
+                  </td>
+                </tr>
+                <tr>
+                  <td className="py-2 text-muted">Meta calórica</td>
+                  <td className="py-2">
+                    {previousMeal ? `${previousMeal.dailyCalories} kcal` : "—"}
+                  </td>
+                  <td className="py-2 font-medium">
+                    {currentMeal ? `${currentMeal.dailyCalories} kcal` : "—"}
+                  </td>
+                </tr>
+                <tr>
+                  <td className="py-2 text-muted">Meta de proteína</td>
+                  <td className="py-2">{previousMeal ? `${previousMeal.proteinTarget} g` : "—"}</td>
+                  <td className="py-2 font-medium">
+                    {currentMeal ? `${currentMeal.proteinTarget} g` : "—"}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
+
       <Card>
         <div className="flex items-center justify-between">
           <p className="text-sm text-muted">
@@ -100,7 +216,12 @@ export default async function DashboardPage() {
       </Card>
 
       <Card>
-        <p className="text-sm text-muted">Gráficos e evolução serão implementados nas próximas fases.</p>
+        <div className="flex items-center justify-between">
+          <p className="text-sm text-muted">Registre seu peso e medidas para acompanhar sua evolução.</p>
+          <Link href="/progresso">
+            <Button variant="secondary">Registrar progresso</Button>
+          </Link>
+        </div>
       </Card>
 
       <form action={signOut}>

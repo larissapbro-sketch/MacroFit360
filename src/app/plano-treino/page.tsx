@@ -4,6 +4,7 @@ import { getProfile } from "@/lib/profile/queries";
 import { getActiveWorkoutPlan } from "@/lib/workout-plan/queries";
 import { Card } from "@/components/ui/card";
 import { GenerateWorkoutPlanButton } from "./generate-workout-plan-button";
+import { WorkoutSessionCheckbox } from "./workout-session-checkbox";
 
 const DIFFICULTY_LABELS: Record<string, string> = {
   iniciante: "Iniciante",
@@ -46,6 +47,12 @@ export default async function PlanoTreinoPage() {
             Semana {plan.week} — nível {DIFFICULTY_LABELS[plan.difficulty] ?? plan.difficulty} —{" "}
             {plan.totalDays}x por semana
           </p>
+          {plan.sessions.length > 0 && (
+            <p className="mt-1 text-sm font-medium">
+              {plan.sessions.filter((s) => s.completed).length} de {plan.sessions.length}{" "}
+              exercícios concluídos
+            </p>
+          )}
         </Card>
       )}
 
@@ -76,6 +83,9 @@ export default async function PlanoTreinoPage() {
                 <p className="text-sm text-muted">
                   {s.sets} séries x {s.reps} · descanso {s.restSeconds}s
                 </p>
+                <div className="mt-1">
+                  <WorkoutSessionCheckbox sessionId={s.id} initialCompleted={s.completed} />
+                </div>
               </li>
             ))}
           </ul>
